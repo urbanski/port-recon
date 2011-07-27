@@ -1,0 +1,124 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import argparse
+import tempfile
+import shlex
+import datetime
+import shutil
+from subprocess import Popen, PIPE
+
+
+#handle command line stuff
+def handle_cmd_line():
+    desc = """port-recon detects open services based on flow-data.The default mode detects hosts advertising ports that appear in the specified ports file. If --scan-all is used, all home network hosts that appear will be scanned for open ports."""
+    
+    parser = argparse.ArgumentParser(description=desc)
+    parser.add_argument('-f, --file', required=True, dest="input_file", help="argus file to read", metavar="FILE")
+    parser.add_argument('-v', dest='verbose', required=False, action="store_true", help="verbose", default=False)
+    parser.add_argument('-n, --networks', dest='networks', required=False, help='networks file', default='networks.lst')
+    parser.add_argument('-p, --ports', dest='ports', required=False, help='ports file', default='ports.lst')
+    parser.add_argument('--thresh', dest='pkt_thresh', required=False, help="valid-flow minimum packet threshold", default="128")
+    parser.add_argument('--all', dest='scan_all', required=False, action='store_true', help="Check every home network host that appears", default=False)
+    parser.add_argument('--confirm-ports', dest='confirm_ports', required=False, action="store_true", help="confirm ports with nmap", default=False)
+    parser.add_argument('--fingerprint', dest='fingerprint', required=False, action="store_true", help="fingerprint ports with nmap nse", default=False)
+    (args) = parser.parse_args()
+    
+    #check preflight conditions
+    if (args.input_file == None ):
+        parser.print_help()
+        sys.exit(0)
+
+    #set a title of none exists
+    if (args.verbose == True):
+        args.title = "port-recon started on %s" % args.input_file
+
+
+    return ( args)
+    
+    
+def flow_scan(file, pkt_thresh):
+    global networks_query_string
+    global ports_query_string
+    
+    cmd = "/usr/local/bin/ra -r %s -n -s dport daddr:64 - tcp and \(pkts gt %s\) and \(dst port lte 1024 or \(%s\)\) and \(%s\)" % (file, pkt_thresh, ports_query_string, networks_query_string)
+    raproc = Popen(shlex.split(cmd), stdout=PIPE)
+    
+    data = raproc.communicate()[0]
+    return data
+
+#generate temp file path
+def get_tempfile():
+    (tf, path) =  tempfile.mkstemp()
+    return path
+
+
+##########################
+#entrypoint
+##########################
+(args) = handle_cmd_line()
+
+#what time is it?
+now = datetime.datetime.now()
+
+#read networks.lst, generate network query
+networks = []
+networks_query_string = ""
+f = open(args.networks,'r')
+for network in f.readlines():
+    network = network.replace("\n","")
+    #print "Found network: %s" % network
+    networks.append(network)
+    if (networks_query_string != ""):
+        networks_query_string = "%s or " % networks_query_string
+    networks_query_string = "%s dst net %s " % (networks_query_string, network)
+f.close()
+print "Network query string: %s" % networks_query_string
+
+#read ports.lst, generate port query
+ports = []
+ports_query_string = ""
+f = open(args.ports, 'r')
+for port in f.readlines():
+    port = port.replace("\n","")
+    #print "Found port: %s" % port.replace("\n","")
+    ports.append(port)
+    if (ports_query_string != ""):
+        ports_query_string = "%s or " % ports_query_string
+    ports_query_string = "%s dst port %s " % (ports_query_string, port)
+f.close()
+print "Port query string: %s" % ports_query_string
+
+#run the first flow scan
+if (args.scan_all == True):
+    #scan all -- pull all IPs regardless of how many times they've appeared
+    flow_data = flow_scan(args.input_file, 0)
+else:
+    #use the THRESHold to determine scan 
+    print "Running flow scan w/ thresh: %s" % args.pkt_thresh
+    flow_data = flow_scan(args.input_file,args.pkt_thresh)
+
+
+addresses = {}
+for line in flow_data.split("\n"):
+    if (line.lstrip() != ""):
+        line = line.split()
+        #attempt to grab the port information
+        try:
+            port_list = addresses[line[1]]
+        except KeyError:
+            port_list = []
+        
+        #does the port already exist?
+        if port_list.count(line[0]) == 0:
+            port_list.append(line[0])
+            addresses[line[1]] = port_list
+
+#print all info we've got collected
+for addr in addresses:
+    print addr,
+    port_list = addresses[addr]
+    for port in port_list:
+        print ",%s" % port,
+    print ""
