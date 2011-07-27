@@ -1,0 +1,1 @@
+port-recon is a script that reads argus data and tries to find IP address and port combinations that may be publicly accessible. If they are publicly accessible (read: accessible from the system running port-recon) then it attempts to fingerprint the service and service version information for the service running on that port. 
