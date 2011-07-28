@@ -7,8 +7,9 @@ import tempfile
 import shlex
 import datetime
 import shutil
+import psycopg2
 from subprocess import Popen, PIPE
-
+from time import gmtime, strftime
 
 #handle command line stuff
 def handle_cmd_line():
@@ -23,7 +24,7 @@ def handle_cmd_line():
     parser.add_argument('-f, --file', required=True, dest="input_file", help="argus file to read", metavar="FILE")
     parser.add_argument('-v', dest='verbose', required=False, action="store_true", help="verbose", default=False)
     parser.add_argument('-n, --networks', dest='networks', required=True, help='networks file', default='networks.lst')
-    parser.add_argument('-p, --ports', dest='ports', required=False, help='ports file', default='')
+    parser.add_argument('--ports', dest='ports', required=False, help='ports file', default='')
     
     #passive options
     detection_group.add_argument('--thresh', dest='pkt_thresh', required=False, help="valid-flow minimum packet threshold", default="128")
