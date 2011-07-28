@@ -15,14 +15,29 @@ def handle_cmd_line():
     desc = """port-recon detects open services based on flow-data.The default mode detects hosts advertising ports that appear in the specified ports file. If --scan-all is used, all home network hosts that appear will be scanned for open ports."""
     
     parser = argparse.ArgumentParser(description=desc)
+    
+    detection_group = parser.add_argument_group('passive detection','passive port detection schemes')
+    fp_group  = parser.add_argument_group('active detection','active network scanning activities')
+    output_group = parser.add_argument_group('output', 'switches that modify output formats and information')
+    
     parser.add_argument('-f, --file', required=True, dest="input_file", help="argus file to read", metavar="FILE")
     parser.add_argument('-v', dest='verbose', required=False, action="store_true", help="verbose", default=False)
-    parser.add_argument('-n, --networks', dest='networks', required=False, help='networks file', default='networks.lst')
-    parser.add_argument('-p, --ports', dest='ports', required=False, help='ports file', default='ports.lst')
-    parser.add_argument('--thresh', dest='pkt_thresh', required=False, help="valid-flow minimum packet threshold", default="128")
-    parser.add_argument('--all', dest='scan_all', required=False, action='store_true', help="Check every home network host that appears", default=False)
-    parser.add_argument('--confirm-ports', dest='confirm_ports', required=False, action="store_true", help="confirm ports with nmap", default=False)
-    parser.add_argument('--fingerprint', dest='fingerprint', required=False, action="store_true", help="fingerprint ports with nmap nse", default=False)
+    parser.add_argument('-n, --networks', dest='networks', required=True, help='networks file', default='networks.lst')
+    parser.add_argument('-p, --ports', dest='ports', required=False, help='ports file', default='')
+    
+    #passive options
+    detection_group.add_argument('--thresh', dest='pkt_thresh', required=False, help="valid-flow minimum packet threshold", default="128")
+    detection_group.add_argument('--ports-explicit', dest='ports_explicit', required=False, action='store_true', help="Do not include ports less than 5000 unless they are explicitly listed in ports.lst", default=False)
+    #   -> REQUIRES ports.lst to be set
+    
+    #active options
+    fp_group.add_argument('--confirm-ports', dest='confirm_ports', required=False, action="store_true", help="check port status with nmap", default=False)
+    fp_group.add_argument('--fingerprint', dest='fingerprint', required=False, action="store_true", help="fingerprint ports with nmap nse", default=False)
+    fp_group.add_argument('--os', dest='os', required=False, action="store_true", help="attempt OS detection with nmap nse", default=False)
+    
+    #output options
+    output_group.add_argument('--only-open', dest='only_open', required=False, action="store_true", help="only print ports that are open", default=False)
+    
     (args) = parser.parse_args()
     
     #check preflight conditions
@@ -37,12 +52,52 @@ def handle_cmd_line():
 
     return ( args)
     
+def port_confirm(addr, port, fingerprint=False, os=False):
+    sFingerprint = ""
+    if (fingerprint == True):
+        sFingerprint = "-sV"
+        
+    cmd = "/usr/bin/nmap -PN %s -p%s %s" % (sFingerprint, port, addr)
+    nmapproc = Popen(shlex.split(cmd), stdout=PIPE)
+    
+    data = nmapproc.communicate()[0]
+    
+    status="unknown"
+    service=""
+    fp=""
+    
+    for line in data.split("\n"):
+        if line.find("%s/tcp" % port) != -1:
+            line_split = line.split()
+            status = line_split[1]
+            service = line_split[2]
+            if (fingerprint == True):
+                for i in range(3, len(line_split)):
+                    fp = "%s %s" % (fp, line_split[i])
+    
+    return (status, service, fp)
+    
+    
     
 def flow_scan(file, pkt_thresh):
     global networks_query_string
     global ports_query_string
+    global args
     
-    cmd = "/usr/local/bin/ra -r %s -n -s dport daddr:64 - tcp and \(pkts gt %s\) and \(dst port lte 1024 or \(%s\)\) and \(%s\)" % (file, pkt_thresh, ports_query_string, networks_query_string)
+    #scan all ports less than 5000, or listed in ports.lst
+    if (args.ports_explicit == False and args.ports != ""):
+        #include lte 5k and ports.lst
+        ports_query_string = "dst port lte 5000 or \(%s\)" % ports_query_string
+    elif (args.ports_explicit == True and args.ports != ""):
+        #only include from ports.lst
+        ports_query_string = ports_query_string
+    else:
+        #this is the default case
+        ports_query_string = "dst port lte 5000"
+    
+    print "ports query string: %s" % ports_query_string
+    
+    cmd = "/usr/local/bin/ra -r %s -n -s dport daddr:64 - tcp and \(pkts gte %s\) and \(%s\) and \(%s\)" % (file, pkt_thresh, ports_query_string, networks_query_string)
     raproc = Popen(shlex.split(cmd), stdout=PIPE)
     
     data = raproc.communicate()[0]
@@ -63,41 +118,43 @@ def get_tempfile():
 now = datetime.datetime.now()
 
 #read networks.lst, generate network query
-networks = []
-networks_query_string = ""
-f = open(args.networks,'r')
-for network in f.readlines():
-    network = network.replace("\n","")
-    #print "Found network: %s" % network
-    networks.append(network)
-    if (networks_query_string != ""):
-        networks_query_string = "%s or " % networks_query_string
-    networks_query_string = "%s dst net %s " % (networks_query_string, network)
-f.close()
-print "Network query string: %s" % networks_query_string
+if (args.networks == ""):
+    print "You MUST specify a networks file."
+    sys.exit(0)
+else:
+    networks = []
+    networks_query_string = ""
+    f = open(args.networks,'r')
+    for network in f.readlines():
+        network = network.replace("\n","")
+        #print "Found network: %s" % network
+        networks.append(network)
+        if (networks_query_string != ""):
+            networks_query_string = "%s or " % networks_query_string
+        networks_query_string = "%s dst net %s " % (networks_query_string, network)
+    f.close()
+    print "Network query string: %s" % networks_query_string
 
 #read ports.lst, generate port query
-ports = []
-ports_query_string = ""
-f = open(args.ports, 'r')
-for port in f.readlines():
-    port = port.replace("\n","")
-    #print "Found port: %s" % port.replace("\n","")
-    ports.append(port)
-    if (ports_query_string != ""):
-        ports_query_string = "%s or " % ports_query_string
-    ports_query_string = "%s dst port %s " % (ports_query_string, port)
-f.close()
-print "Port query string: %s" % ports_query_string
+if (args.ports != ""):
+    ports = []
+    ports_query_string = ""
+    f = open(args.ports, 'r')
+    for port in f.readlines():
+        port = port.replace("\n","")
+        #print "Found port: %s" % port.replace("\n","")
+        ports.append(port)
+        if (ports_query_string != ""):
+            ports_query_string = "%s or " % ports_query_string
+        ports_query_string = "%s dst port %s " % (ports_query_string, port)
+    f.close()
+    #print "Port query string: %s" % ports_query_string
 
-#run the first flow scan
-if (args.scan_all == True):
-    #scan all -- pull all IPs regardless of how many times they've appeared
-    flow_data = flow_scan(args.input_file, 0)
-else:
-    #use the THRESHold to determine scan 
-    print "Running flow scan w/ thresh: %s" % args.pkt_thresh
-    flow_data = flow_scan(args.input_file,args.pkt_thresh)
+
+#detection group switches processed here (passive)
+#use the THRESHold to determine scan 
+print "Running flow scan w/ thresh: %s" % args.pkt_thresh
+flow_data = flow_scan(args.input_file,args.pkt_thresh)
 
 
 addresses = {}
@@ -115,10 +172,16 @@ for line in flow_data.split("\n"):
             port_list.append(line[0])
             addresses[line[1]] = port_list
 
+#scanning group switches processed here (active)
+
+
 #print all info we've got collected
 for addr in addresses:
-    print addr,
     port_list = addresses[addr]
     for port in port_list:
-        print ",%s" % port,
-    print ""
+        port_status = "unknown"
+        service = ""
+        fp = ""
+        if (args.confirm_ports == True):
+            (port_status, service, fp) = port_confirm(addr,port, args.fingerprint, args.os)
+        print "%s:%s:%s:%s:%s" % (addr,port,port_status,service,fp)

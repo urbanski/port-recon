@@ -1,1 +1,9 @@
 port-recon is a script that reads argus data and tries to find IP address and port combinations that may be publicly accessible. If they are publicly accessible (read: accessible from the system running port-recon) then it attempts to fingerprint the service and service version information for the service running on that port. 
+
+
+Most basic usage:
+
+./port-recon -f my_file
+
+This prints all host:port combinations with a 128 packet threshold with the output format
+addr:port:open|closed|filtered|unknown:service fingerprint
