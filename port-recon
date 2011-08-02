@@ -8,8 +8,82 @@ import shlex
 import datetime
 import shutil
 import psycopg2
+import re
 from subprocess import Popen, PIPE
 from time import gmtime, strftime
+
+
+def db_connect():
+    
+    #modify to match your server
+    DB_HOST = ""
+    DB_NAME=""
+    DB_USER=""
+    DB_PASS=""
+    
+    #try the actual connection
+    conn_string = "host='%s' dbname='%s' user='%s' password='%s'" % (DB_HOST, DB_NAME, DB_USER, DB_PASS)
+    try:
+            # get a connection, if a connect cannot be made an exception will be raised here
+            conn = psycopg2.connect(conn_string)
+            # conn.cursor will return a cursor object, you can use this cursor to perform queries
+            cursor = conn.cursor()
+    except:
+            # Get the most recent exception
+            exceptionType, exceptionValue, exceptionTraceback = sys.exc_info()
+            # Exit the script and print an error telling what happened.
+            sys.exit("Database connection failed!\n ->%s" % (exceptionValue))
+    return conn
+
+#update port information
+def save_port_info(addr, port, service, fingerprint):
+    global args
+    #check for database support; else return true
+    if (args.db == True):
+        conn = db_connect()
+        cursor = conn.cursor()
+        #insert or update?
+        cursor.execute('SELECT address,port,last_updated FROM discovered_services WHERE address=\'%s\' AND port=\'%s\'' % (addr, port))
+        
+        service = re.escape(service)
+        fingerprint = re.escape(fingerprint)
+        
+        #do insert
+        timestamp = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+        sSQL="INSERT INTO \"public\".\"discovered_services\" (\"address\", \"port\", \"service\", \"ident\", \"last_updated\", \"date_created\") VALUES ('%s', '%s', '%s', '%s', '%s', '%s')" % (addr, port, service, fingerprint, timestamp, timestamp)
+        cursor.execute(sSQL)
+        #print "did insert"
+        #print sSQL
+        
+        conn.commit()
+        
+        return True
+    else:
+        return True
+    
+#remove a port from the table
+def delete_port_info(addr, port):
+    if (args.db == True):
+        conn = db_connect()
+        cursor = db.cursor()
+        cursor.execute("DELETE FROM \"discovered_services\" WHERE \"address\"=\"%s\" AND \"port\"=\"%s\"")
+        print "did delete"
+
+#Check to see when we fingerprinte
+def scan_required(addr, port):
+    global args
+    #check for database support; else return true
+    if (args.db == True):
+        conn = db_connect()
+        cursor = conn.cursor()
+        cursor.execute('SELECT address,port,last_updated FROM discovered_services WHERE address=\'%s\' AND port=\'%s\'' % (addr, port))
+        if (cursor.rowcount == 1):
+            return False
+        else:    
+            return True
+    else:
+        return True
+
 
 #handle command line stuff
 def handle_cmd_line():
@@ -38,6 +112,7 @@ def handle_cmd_line():
     
     #output options
     output_group.add_argument('--only-open', dest='only_open', required=False, action="store_true", help="only print ports that are open", default=False)
+    output_group.add_argument('--db', dest='db', required=False, action="store_true", help="store results in a database", default=False)
     
     (args) = parser.parse_args()
     
@@ -183,6 +258,12 @@ for addr in addresses:
         port_status = "unknown"
         service = ""
         fp = ""
-        if (args.confirm_ports == True):
+        isScanRequired = scan_required(addr,port)
+        if (args.confirm_ports == True and isScanRequired == True):
             (port_status, service, fp) = port_confirm(addr,port, args.fingerprint, args.os)
+            save_port_info(addr,port,service,fp)
+        else:
+            port_status="DB-EXEMPT"
+            service="DB-EXEMPT"
+            fp="DB-EXEMPT"
         print "%s:%s:%s:%s:%s" % (addr,port,port_status,service,fp)
