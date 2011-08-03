@@ -2,7 +2,7 @@ port-recon is a tool that reads any argus-compatible flow data and identifies IP
 
 requirements
 =============
-python-pyscopg2
+python-psycopg2
 
 usage
 ======
