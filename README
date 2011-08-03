@@ -1,5 +1,11 @@
-port-recon is a script that reads argus data and tries to find IP address and port combinations that may be publicly accessible. If they are publicly accessible (read: accessible from the system running port-recon) then it attempts to fingerprint the service and service version information for the service running on that port. 
+port-recon is a tool that reads any argus-compatible flow data and identifies IP address and port combinations that may be publicly accessible. If they are publicly accessible (read: accessible from the system running port-recon) then it attempts to fingerprint the service and service version information for the service running on that port. port-recon is useful because IPv6 networks are not easily (or feasibly) scanned and port-recon can identify and scan active IPv6 hosts by validating their flows.
 
+requirements
+=============
+python-pyscopg2
+
+usage
+======
 
 Most basic usage:
 
@@ -7,3 +13,6 @@ Most basic usage:
 
 This prints all host:port combinations with a 128 packet threshold with the output format
 addr:port:open|closed|filtered|unknown:service fingerprint
+
+--networks
+Specifies a networks file. The networks file contains a list of valid local network addresses. 
