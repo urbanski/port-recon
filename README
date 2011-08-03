@@ -9,10 +9,39 @@ usage
 
 Most basic usage:
 
-./port-recon -f my_file
+./port-recon -f [FILENAME]
 
 This prints all host:port combinations with a 128 packet threshold with the output format
 addr:port:open|closed|filtered|unknown:service fingerprint
 
---networks
-Specifies a networks file. The networks file contains a list of valid local network addresses. 
+--networks [FILENAME]
+Specifies a networks file. The networks file contains a list of valid local network addresses. If no networks file is specified the default, 'networks.lst' is used. 
+
+--ports [FILENAME]
+Specifies a ports file. The ports file contains a list of valid ports to identify. If no ports file is specified, then all ports less than 5000 are used. 
+
+--thresh [int]
+Specifies the flow threshold. This is the minimum number of packets that must be in a flow for the flow to be considered valid. By default port-recon uses a threshold of 128 packets. This is very conservative.
+
+--ports-explicit
+If ports-explicit is signaled then port-recon will only attempt to identify ports in ports.lst.
+
+--confirm-ports
+Scans the remote host using nmap to determine if the port is open
+
+--fingerprint
+Scans the remote host with nmap nse to determine what server, and what version is running on the remote host.
+
+--os
+Not supported at this time.
+
+--only-open
+Only print ports that are open to stdout.
+
+--db
+Save results to a database. When db is enabled ports will not be scanned if they have been scanned recently. DB mode is the best option for production instances of port-recon that actively read flows.
+
+about
+========
+port-recon is maintained by will urbanski <urbanski@vt.edu>
+https://github.com/urbanski/port-recon/
